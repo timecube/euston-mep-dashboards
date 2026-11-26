@@ -342,7 +342,16 @@
     }).toString();
     // A form-encoded POST with no custom headers is a CORS "simple" request, which Bentley's
     // sign-in server answers for browser apps.
-    const res = await fetch(`${cfg.imsBase}/connect/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+    let res;
+    try {
+      res = await fetch(`${cfg.imsBase}/connect/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+    } catch (e) {
+      // Bentley's sign-in server only lets a web address read the token once that address is
+      // on its allow list, which can lag behind adding it as a redirect URI on the app.
+      const err = new Error(`Bentley accepted the sign-in but has not yet allowed this web address (${location.origin}) to collect it. If the address was only just added to the app's redirect URIs, try again later.`);
+      err.returnTo = pending.returnTo;
+      throw err;
+    }
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.access_token) {
       const err = new Error(json.error_description || json.error || `Bentley sign-in failed (${res.status}).`);
