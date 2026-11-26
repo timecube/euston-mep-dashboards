@@ -12,7 +12,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = '1.2.0';
+  const VERSION = '2.0.0';
   const SCRIPT_SRC = (document.currentScript && document.currentScript.src) || '';
   const ROOT = SCRIPT_SRC ? new URL('../', SCRIPT_SRC) : new URL('./', location.href);                 // the dashboards folder
   const IS_HTTP = /^https?:$/.test(location.protocol);
@@ -35,7 +35,8 @@
   })();
 
   const KEYS = {
-    user: 'mep.sc.config.v1',
+    user: 'mep.sc.config.v2',
+    resolved: 'mep.sc.resolved.v1',
     token: 'mep.sc.token.v1',
     pending: 'mep.sc.pending.',
     authError: 'mep.sc.authError',
@@ -52,7 +53,7 @@
   };
 
   const DEFAULTS = {
-    clientId: '', projectId: '', scheduleId: '', projectLabel: '',
+    clientId: '', projectId: '', scheduleId: '', projectLabel: '', projectName: '', includeTypes: [],
     statusCategoryId: '', lengthFieldId: 'auto', lengthUnit: 'auto', objectSource: 'auto',
     scopeMode: 'status', scopeValue: '', unrecordedStatus: 'Not Started', linkProgramme: true,
     refreshMinutes: 10, fullReloadHours: 6, staleAfterDays: 3, latestUrl: '', webUrl: '',
@@ -77,13 +78,23 @@
   };
 
   function config() {
-    return Object.assign({}, DEFAULTS, global.MEP_DASHBOARD_CONFIG || {}, store.get(KEYS.user, {}));
+    const merged = Object.assign({}, DEFAULTS, global.MEP_DASHBOARD_CONFIG || {}, store.get(KEYS.user, {}));
+    // The team setup names the project; each browser looks it up once and remembers the IDs.
+    if (!merged.scheduleId && clean(merged.projectName)) {
+      const r = store.get(KEYS.resolved, null);
+      if (r && r.projectName === clean(merged.projectName) && r.scheduleId) Object.assign(merged, { projectId: r.projectId, scheduleId: r.scheduleId });
+    }
+    return merged;
+  }
+  function typeList(cfg) {
+    const v = cfg.includeTypes;
+    return (Array.isArray(v) ? v : String(v || '').split(/[,;\n]/)).map(clean).filter(Boolean);
   }
   function saveUserConfig(patch) {
     store.set(KEYS.user, Object.assign(store.get(KEYS.user, {}), patch));
   }
   function isCloudConfigured(cfg = config()) {
-    return Boolean(cfg.clientId && cfg.scheduleId);
+    return Boolean(cfg.clientId && (cfg.scheduleId || clean(cfg.projectName)));
   }
   function mode() {
     if (document.getElementById('mep-snapshot')) return 'snapshot';
@@ -543,6 +554,12 @@
   }
   function resolveObjectSource(fields, setting) {
     if (setting === 'rules' || setting === 'parent') return { kind: setting };
+    if (setting && setting.startsWith('code:')) {
+      // A code that turned out to be a user field of the same name still works.
+      const name = clean(setting.slice(5)).toLowerCase();
+      const f = fields.find((x) => ['Entity3d', 'Resource'].includes(x.category) && x.type === 'String' && clean(x.name).toLowerCase() === name);
+      return f ? { kind: 'field', field: f } : { kind: 'code', name: clean(setting.slice(5)) };
+    }
     const usable = fields.filter((f) => ['Entity3d', 'Resource'].includes(f.category) && f.type === 'String');
     if (setting && setting.startsWith('field:')) {
       const f = usable.find((x) => x.id === setting.slice(6));
@@ -552,7 +569,7 @@
     return f ? { kind: 'field', field: f } : { kind: 'rules' };
   }
   function configSignature(cfg) {
-    return JSON.stringify(['scheduleId', 'statusCategoryId', 'lengthFieldId', 'lengthUnit', 'objectSource', 'scopeMode', 'scopeValue', 'linkProgramme', 'apiBase'].map((k) => cfg[k]));
+    return JSON.stringify(['scheduleId', 'statusCategoryId', 'lengthFieldId', 'lengthUnit', 'objectSource', 'scopeMode', 'scopeValue', 'linkProgramme', 'apiBase'].map((k) => cfg[k]).concat([typeList(cfg).join('|')]));
   }
   function nameMatcher(text) {
     const t = clean(text);
@@ -585,6 +602,65 @@
     return out;
   }
 
+  // Resource code values per resource, for example the "4D codes" column in SYNCHRO.
+  async function codeValuesByResource(S, name, wanted, progress, notes) {
+    const codes = await getAll(`${S}/codes`, 'codes');
+    const isRes = (c) => /^resources?$/i.test(clean(c.category));
+    const lc = name.toLowerCase();
+    const code = codes.find((c) => isRes(c) && clean(c.name).toLowerCase() === lc) || codes.find((c) => isRes(c) && clean(c.name).toLowerCase().includes(lc));
+    if (!code) {
+      notes.push(`No resource code called "${name}" in this schedule, so object types come from element names.`);
+      return null;
+    }
+    const values = await getAll(`${S}/codes/${encodeURIComponent(code.id)}/code-values`, 'codeValues');
+    const want = new Map(wanted.map((w) => [w.toLowerCase(), w]));
+    const label = new Map();
+    for (const v of values) {
+      const hit = want.get(clean(v.name).toLowerCase()) || want.get(clean(v.description).toLowerCase());
+      if (want.size && !hit) continue;
+      label.set(v.id, hit || clean(v.name) || clean(v.description));
+    }
+    if (want.size && !label.size) notes.push(`"${code.name}" has none of these values: ${wanted.join(', ')}.`);
+    const out = new Map();
+    const read = async (params) => {
+      const rows = await getAll(`${S}/resources/code-value-assignments`, 'codeValueAssignments', params, (n) => progress(`Reading ${code.name} (${fmt.int(n)})`));
+      for (const a of rows) if (label.has(a.codeValueId) && !out.has(a.resourceId)) out.set(a.resourceId, label.get(a.codeValueId));
+    };
+    if (want.size && label.size <= 6) for (const id of label.keys()) await read({ codeValueId: id });
+    else if (label.size) await read({});
+    return { code, map: out };
+  }
+
+  // Finds the SYNCHRO schedule named in the team setup, once per browser.
+  async function resolveTarget(cfg, progress) {
+    if (cfg.scheduleId) return cfg;
+    const want = clean(cfg.projectName);
+    if (!want) throw new Error('No Synchro project is set up yet. Open Advanced options to choose one.');
+    progress(`Finding "${want}"`);
+    const lc = want.toLowerCase();
+    const scan = async (projects) => {
+      let fallback = null;
+      const lists = await mapLimit(projects.slice(0, 60), 6, (p) => listSchedules(p.id).catch((e) => { if (e.authRequired) throw e; return []; }));
+      for (let i = 0; i < lists.length; i += 1) {
+        const p = projects[i];
+        const named = lists[i].find((s) => clean(s.name).toLowerCase() === lc);
+        if (named) return { p, s: named };
+        if (!fallback && clean(p.displayName).toLowerCase() === lc && lists[i].length) fallback = { p, s: lists[i].find((s) => s.type === 'v6.5') || lists[i][0] };
+      }
+      return fallback;
+    };
+    let hit = await scan(await listProjects(want));
+    if (!hit) hit = await scan(await listProjects(''));
+    if (!hit) {
+      const me = await whoAmI().catch(() => ({}));
+      const err = new Error(`Couldn't find the Synchro project "${want}" in ${me.email ? `${me.email}'s` : 'your'} Bentley projects. Ask the project admin to add you to it.`);
+      err.noAccess = true;
+      throw err;
+    }
+    store.set(KEYS.resolved, { projectName: want, projectId: hit.p.id, scheduleId: hit.s.id, at: Date.now() });
+    return Object.assign(cfg, { projectId: hit.p.id, scheduleId: hit.s.id });
+  }
+
   async function loadStatic(cfg, progress) {
     const S = scheduleBase(cfg.scheduleId);
     const notes = [];
@@ -611,11 +687,16 @@
     }
     const objectSource = resolveObjectSource(userFields, cfg.objectSource);
     if (objectSource.kind === 'parent') await readAll();
+    const types = typeList(cfg);
+    const codeRead = objectSource.kind === 'code' ? await codeValuesByResource(S, objectSource.name, types, progress, notes) : null;
+    if (objectSource.kind === 'code' && !codeRead) objectSource.kind = 'rules';
     const byId = new Map((all || candidates).map((r) => [r.id, r]));
     const hasChildren = new Set((all || candidates).filter((r) => r.parentId).map((r) => r.parentId));
     const isLeaf = (r) => !hasChildren.has(r.id);
     let scope;
-    if (scopeMode === 'descendants') {
+    if (codeRead && types.length) {
+      scope = candidates.filter((r) => codeRead.map.has(r.id));
+    } else if (scopeMode === 'descendants') {
       const root = cfg.scopeValue;
       const children = new Map();
       for (const r of all) if (r.parentId) (children.get(r.parentId) || children.set(r.parentId, []).get(r.parentId)).push(r);
@@ -675,11 +756,13 @@
       return u === 'mm' ? p.value / 1000 : u === 'ft' ? p.value * 0.3048 : p.value;
     };
 
+    const keep = types.length && !(codeRead && types.length) ? new Set(types.map((t) => t.toLowerCase())) : null;
     const rows = scope.map((r) => {
       const element = clean(r.name);
       const names = splitName(element);
       let item;
-      if (objectSource.kind === 'field') item = clean((objectValues.get(r.id) || [])[0]) || classifyByName(element);
+      if (objectSource.kind === 'code') item = codeRead.map.get(r.id) || classifyByName(element);
+      else if (objectSource.kind === 'field') item = clean((objectValues.get(r.id) || [])[0]) || classifyByName(element);
       else if (objectSource.kind === 'parent') item = clean((byId.get(r.parentId) || {}).name) || classifyByName(element);
       else item = classifyByName(element);
       const metres = toMetres(parsed.get(r.id));
@@ -690,6 +773,11 @@
         fittingCount: isFitting ? 1 : 0, isFitting
       };
     });
+    if (keep) {
+      const before = rows.length;
+      rows.splice(0, rows.length, ...rows.filter((r) => keep.has(clean(r.item).toLowerCase())));
+      if (before && !rows.length) notes.push(`None of the ${fmt.int(before)} items are ${types.join(' or ')}.`);
+    }
     const missing = rows.filter((r) => r.noLength).length;
     if (lengthField && missing) notes.push(`${fmt.int(missing)} tray or duct items have no ${lengthField.name} value, so they add no length.`);
 
@@ -740,8 +828,8 @@
       statusItems, rows, programmeLinked, notes, unit,
       mapping: {
         length: lengthField ? `${lengthField.name} (${lengthField.category === 'Entity3d' ? '3D object' : 'resource'} field)` : 'none',
-        object: objectSource.kind === 'field' ? `${objectSource.field.name} field` : objectSource.kind === 'parent' ? 'parent resource' : 'element name rules',
-        scope: scopeMode
+        object: objectSource.kind === 'code' ? `${codeRead.code.name} code` : objectSource.kind === 'field' ? `${objectSource.field.name} field` : objectSource.kind === 'parent' ? 'parent resource' : 'element name rules',
+        scope: codeRead && types.length ? 'code' : scopeMode
       }
     };
   }
@@ -762,13 +850,18 @@
   async function loadDataset(opts = {}) {
     const cfg = Object.assign(config(), opts.config || {});
     const progress = opts.onProgress || (() => {});
-    if (!cfg.scheduleId) throw new Error('Choose a Synchro schedule in Synchro settings first.');
+    await resolveTarget(cfg, progress);
     const S = scheduleBase(cfg.scheduleId);
     const sig = configSignature(cfg);
     const cached = opts.noCache ? null : store.get(KEYS.staticData, null);
     let base = cached && cached.sig === sig && Date.now() - cached.at < cfg.fullReloadHours * 3600e3 && !opts.force ? cached : null;
     if (!base) {
-      base = await loadStatic(cfg, progress);
+      try {
+        base = await loadStatic(cfg, progress);
+      } catch (e) {
+        if ((e.status === 404 || e.noAccess) && !(global.MEP_DASHBOARD_CONFIG || {}).scheduleId) store.remove(KEYS.resolved);
+        throw e;
+      }
       base.sig = sig;
       base.at = Date.now();
       if (!opts.noCache && !store.set(KEYS.staticData, base)) store.remove(KEYS.staticData);
@@ -981,11 +1074,12 @@
     dlg.innerHTML = `
     <form method="dialog" class="sc-shell">
       <header class="sc-head">
-        <div><p class="sc-kicker">Data source</p><h2 id="sc-title">Synchro cloud connection</h2></div>
+        <div><p class="sc-kicker">Advanced options</p><h2 id="sc-title">What the dashboard reads</h2></div>
         <button type="button" class="sc-x" data-act="close" aria-label="Close">&times;</button>
       </header>
       <div class="sc-body">
-        ${IS_HTTP ? '' : '<p class="sc-warn">These dashboards are open straight from a file, so Bentley sign-in cannot return to them. Start them with <code>Start Dashboards.bat</code> to use the live connection. Loading an Excel export still works here.</p>'}
+        <p class="sc-help sc-lead">Everyone who opens the link already gets the team setup below, so most people never need this. Changes you save here apply on this computer only. To change it for everyone, use <b>Download team config</b> and send the file to Yusuf.</p>
+        ${IS_HTTP ? '' : '<p class="sc-warn">This page is open straight from a file, so Bentley sign-in cannot return to it. Use the team web link for live data.</p>'}
         <section class="sc-sec">
           <h3><span>1</span>Bentley sign-in</h3>
           <div class="sc-grid">
@@ -999,7 +1093,8 @@
         <section class="sc-sec">
           <h3><span>2</span>Project and schedule</h3>
           <div class="sc-grid">
-            <label class="sc-field"><span>Find a project</span><input name="projectSearch" placeholder="Type part of the project name" autocomplete="off"></label>
+            <label class="sc-field sc-wide"><span>Synchro project name (found automatically for each person)</span><input name="projectName" autocomplete="off" placeholder="4D MEP Test Revit Import"></label>
+            <label class="sc-field"><span>Or pick one: find a project</span><input name="projectSearch" placeholder="Type part of the project name" autocomplete="off"></label>
             <label class="sc-field"><span>Your projects</span><select name="projectPick"><option value="">Sign in to list projects</option></select></label>
             <label class="sc-field sc-wide"><span>Project ID (fills in when you choose a project above)</span><input name="projectId" spellcheck="false" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000"></label>
             <label class="sc-field sc-wide"><span>Synchro schedule</span><select name="scheduleId"><option value="">Choose a project first</option></select></label>
@@ -1013,6 +1108,7 @@
             <label class="sc-field"><span>Length field</span><select name="lengthFieldId"><option value="auto">Detect a field called Length</option><option value="none">No length (count items only)</option></select></label>
             <label class="sc-field"><span>Length unit in Synchro</span><select name="lengthUnit"><option value="auto">Detect</option><option value="m">Metres</option><option value="mm">Millimetres</option><option value="ft">Feet</option></select></label>
             <label class="sc-field sc-wide"><span>Object type (tray, duct, fitting) comes from</span><select name="objectSource"><option value="auto">Detect a Category field, else element-name rules</option><option value="rules">Element name rules (tray, duct and fitting words)</option><option value="parent">Name of the parent resource</option></select></label>
+            <label class="sc-field sc-wide"><span>Show only these object types (comma separated; empty shows everything in scope)</span><input name="includeTypes" autocomplete="off" placeholder="Cable Duct, Cable Duct Fitting"></label>
             <label class="sc-field"><span>Items in scope</span><select name="scopeMode">
               <option value="status">Resources with an installation status</option>
               <option value="descendants">Everything inside a resource folder</option>
@@ -1042,7 +1138,7 @@
     const f = (name) => dlg.querySelector(`[name="${name}"]`);
     const msgEl = $('[data-msg]');
     const say = (text, kind) => { msgEl.textContent = text || ''; msgEl.className = `sc-msg${kind ? ` is-${kind}` : ''}`; };
-    const state = { folders: null, groups: null, busy: false };
+    const state = { folders: null, groups: null, busy: false, picked: false };
     $('[data-redirect]').textContent = redirectUri();
 
     f('clientId').value = cfg.clientId;
@@ -1054,16 +1150,20 @@
     f('linkProgramme').checked = cfg.linkProgramme !== false;
     f('refreshMinutes').value = cfg.refreshMinutes;
     f('projectLabel').value = cfg.projectLabel || '';
+    f('projectName').value = cfg.projectName || '';
+    f('includeTypes').value = typeList(cfg).join(', ');
     const keepOption = (select, value, label) => { if (value && ![...select.options].some((o) => o.value === value)) select.append(option(value, label, true)); select.value = value || select.value; };
     keepOption(f('scheduleId'), cfg.scheduleId, `Current schedule (${cfg.scheduleId})`);
     keepOption(f('statusCategoryId'), cfg.statusCategoryId, 'Current category');
     keepOption(f('lengthFieldId'), cfg.lengthFieldId, 'Current length field');
-    keepOption(f('objectSource'), cfg.objectSource, 'Current object field');
+    keepOption(f('objectSource'), cfg.objectSource, cfg.objectSource && cfg.objectSource.startsWith('code:') ? `Resource code: ${cfg.objectSource.slice(5)}` : 'Current object field');
 
     function collect() {
       const scopeMode = f('scopeMode').value;
       return {
-        clientId: clean(f('clientId').value), projectId: clean(f('projectId').value), scheduleId: f('scheduleId').value,
+        clientId: clean(f('clientId').value), projectName: clean(f('projectName').value),
+        includeTypes: clean(f('includeTypes').value).split(/[,;]/).map(clean).filter(Boolean),
+        projectId: state.picked ? clean(f('projectId').value) : '', scheduleId: state.picked ? f('scheduleId').value : '',
         statusCategoryId: f('statusCategoryId').value, unrecordedStatus: clean(f('unrecordedStatus').value) || 'Not Started',
         lengthFieldId: f('lengthFieldId').value || 'auto', lengthUnit: f('lengthUnit').value || 'auto', objectSource: f('objectSource').value || 'auto',
         scopeMode, scopeValue: scopeMode === 'name' ? clean(f('scopeText').value) : (['descendants', 'group'].includes(scopeMode) ? f('scopeSelect').value : ''),
@@ -1153,6 +1253,8 @@
       objSel.append(option('auto', 'Detect a Category field, else element-name rules'));
       objSel.append(option('rules', 'Element name rules (tray, duct and fitting words)'));
       objSel.append(option('parent', 'Name of the parent resource'));
+      const codes = await getAll(`${S}/codes`, 'codes').catch(() => []);
+      for (const c of codes.filter((x) => /^resources?$/i.test(clean(x.category)))) objSel.append(option(`code:${clean(c.name)}`, `Resource code: ${clean(c.name)}`));
       for (const x of fields.filter((u) => ['Entity3d', 'Resource'].includes(u.category) && u.type === 'String')) objSel.append(option(`field:${x.id}`, `User field: ${label(x)}`));
       objSel.value = [...objSel.options].some((o) => o.value === wantObj) ? wantObj : 'auto';
       state.groups = null;
@@ -1214,10 +1316,10 @@
         ${d.notes.length ? `<ul class="sc-notes">${d.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>` : ''}`;
     }
     function teamConfigText(values) {
-      const keys = ['clientId', 'webUrl', 'projectId', 'scheduleId', 'projectLabel', 'statusCategoryId', 'lengthFieldId', 'lengthUnit', 'objectSource', 'scopeMode', 'scopeValue', 'unrecordedStatus', 'linkProgramme', 'refreshMinutes', 'fullReloadHours'];
+      const keys = ['clientId', 'webUrl', 'projectName', 'projectId', 'scheduleId', 'projectLabel', 'includeTypes', 'statusCategoryId', 'lengthFieldId', 'lengthUnit', 'objectSource', 'scopeMode', 'scopeValue', 'unrecordedStatus', 'linkProgramme', 'refreshMinutes', 'fullReloadHours'];
       const merged = Object.assign({}, config(), values);
       const body = keys.map((k) => `  ${k}: ${JSON.stringify(merged[k])}`).join(',\n');
-      return `/*\n * MEP dashboards: team defaults. Saved from Synchro settings on ${fmt.dateTime(new Date())}.\n * Save this file as assets/dashboard-config.js beside the dashboards so everyone\n * who opens them from that folder starts connected.\n */\nwindow.MEP_DASHBOARD_CONFIG = {\n${body}\n};\n`;
+      return `/*\n * MEP dashboard: team setup. Saved from Advanced options on ${fmt.dateTime(new Date())}.\n * Replace assets/dashboard-config.js with this file and update the website, so everyone\n * who opens the link gets these settings.\n */\nwindow.MEP_DASHBOARD_CONFIG = {\n${body}\n};\n`;
     }
 
     dlg.addEventListener('click', (ev) => {
@@ -1239,7 +1341,7 @@
       } else if (which === 'preview') {
         guard(async () => {
           const values = collect();
-          if (!values.scheduleId) throw new Error('Choose a schedule first.');
+          if (!values.scheduleId && !values.projectName) throw new Error('Enter the Synchro project name, or pick a project and schedule.');
           saveUserConfig({ clientId: values.clientId });
           const d = await loadDataset({ config: values, noCache: true, history: false, onProgress: (t) => say(`${t}...`) });
           renderPreview(d);
@@ -1252,7 +1354,7 @@
         if (onSaved) onSaved(values);
       } else if (which === 'export') {
         download('dashboard-config.js', teamConfigText(collect()));
-        say('Saved dashboard-config.js to Downloads. Copy it into the assets folder (replace the old one).', 'ok');
+        say('Saved dashboard-config.js to Downloads. Send it to Yusuf to make it the setup for everyone.', 'ok');
       } else if (which === 'reset') {
         store.remove(KEYS.user);
         dlg.close('reset');
@@ -1261,11 +1363,13 @@
     });
     f('projectPick').addEventListener('change', () => {
       if (!f('projectPick').value) return;
+      state.picked = true;
       f('projectId').value = f('projectPick').value;
       guard(fillSchedules);
     });
-    f('projectId').addEventListener('change', () => guard(fillSchedules));
-    f('scheduleId').addEventListener('change', () => guard(fillScheduleOptions));
+    f('projectId').addEventListener('change', () => { state.picked = true; guard(fillSchedules); });
+    f('scheduleId').addEventListener('change', () => { state.picked = true; guard(fillScheduleOptions); });
+    f('projectName').addEventListener('change', () => { state.picked = false; });
     f('scopeMode').addEventListener('change', () => { syncScopeUI(); guard(fillScope); });
     $('form').addEventListener('submit', (ev) => ev.preventDefault());
     let searchTimer;
@@ -1284,10 +1388,10 @@
         await renderWho();
         await fillProjects('');
         if (clean(f('projectId').value)) await fillSchedules();
-        say('Connected. Preview the data or save.', 'ok');
+        say('Connected. Preview the data, or save to use it on this computer.', 'ok');
       });
     } else if (!IS_HTTP) {
-      say('Live connection needs the launcher. You can still fill in the IDs and download a team config.');
+      say('Live data needs the team web link. You can still edit and download a team config here.');
     } else {
       say('Paste the Bentley app client ID, then sign in.');
     }
@@ -1864,7 +1968,7 @@
       gate.show({
         state: 'welcome',
         title: 'Load the latest Synchro export',
-        message: "Opened from a file, this dashboard reads an Excel export from Synchro. For live data, open the team's web link, where you sign in with your Bentley account.",
+        message: "Opened from a file, this dashboard can only read an Excel export from Synchro. For live data, open the team web link and sign in with your Bentley account.",
         actions: [{ label: 'Load Excel export', primary: true, onClick: opts.onExcel }]
       });
     }
