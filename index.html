@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en-GB" class="booting">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1e3775">
+  <title>MEP installation dashboards · HS2</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --navy: #1e3775; --navy-deep: #14244c; --magenta: #b85197; --green: #328c23; --ink: #222; --ink-2: #555;
+      --line: #dcdcdc; --paper: #f7f7f7; --font: "Open Sans", "Segoe UI", Arial, sans-serif;
+      --sc-ink: #222; --sc-accent: #1e3775; --sc-paper: #f7f7f7; --sc-line: #dcdcdc; --sc-font: var(--font); --sc-mono: Consolas, "Courier New", monospace;
+    }
+    .booting body { visibility: hidden; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font); }
+    .masthead { background: var(--navy); color: #fff; }
+    .masthead-inner { max-width: 1120px; margin: auto; padding: 26px 32px 30px; display: flex; align-items: center; gap: 22px; }
+    .wordmark { width: 74px; height: auto; flex: 0 0 auto; }
+    .rule { width: 1px; align-self: stretch; background: rgba(255,255,255,.28); }
+    .kicker { margin: 0 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #c8d3ee; }
+    h1 { margin: 0; font-size: clamp(24px, 3vw, 32px); font-weight: 800; letter-spacing: -.01em; }
+    main { max-width: 1120px; margin: auto; padding: 34px 32px 48px; }
+    .status { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; padding: 14px 18px; background: #fff; border: 1px solid var(--line); font-size: 14px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #b7b7b7; flex: 0 0 auto; }
+    .dot.on { background: var(--green); box-shadow: 0 0 0 4px rgba(50,140,35,.16); }
+    .status-text { flex: 1; min-width: 240px; }
+    .status-text b { font-weight: 700; }
+    button { font: inherit; cursor: pointer; }
+    .btn { min-height: 38px; padding: 0 16px; border: 1px solid var(--navy); background: var(--navy); color: #fff; font-size: 13px; font-weight: 700; }
+    .btn:hover { background: var(--navy-deep); }
+    .btn.ghost { background: #fff; color: var(--navy); }
+    .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-top: 24px; }
+    .card { position: relative; display: flex; flex-direction: column; gap: 10px; min-height: 210px; padding: 26px 28px; background: #fff; border: 1px solid var(--line); color: inherit; text-decoration: none; transition: border-color .15s ease, transform .15s ease; }
+    .card:hover, .card:focus-visible { border-color: var(--navy); transform: translateY(-2px); outline: none; }
+    .card .num { font-size: 13px; font-weight: 800; color: var(--magenta); letter-spacing: .08em; }
+    .card h2 { margin: 0; font-size: 22px; font-weight: 800; color: var(--navy); letter-spacing: -.01em; }
+    .card p { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.55; max-width: 44ch; }
+    .card .go { margin-top: auto; font-size: 13px; font-weight: 700; color: var(--navy); }
+    .card .go::after { content: "  \2192"; }
+    .note { margin-top: 26px; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
+    .note code { font-family: Consolas, monospace; background: #fff; border: 1px solid var(--line); padding: 1px 5px; }
+    .error { display: none; margin-top: 14px; padding: 12px 16px; background: #fdecee; border: 1px solid #f3b6bc; color: #8c1823; font-size: 13px; }
+    .error.show { display: block; }
+    .publish { display: flex; align-items: center; flex-wrap: wrap; gap: 14px 24px; margin-top: 14px; padding: 18px 20px; background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--magenta); }
+    .publish-copy { flex: 1; min-width: 260px; }
+    .publish h2 { margin: 0 0 4px; font-size: 16px; font-weight: 800; color: var(--navy); }
+    .publish p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+    @media (max-width: 720px) { .cards { grid-template-columns: 1fr; } .masthead-inner, main { padding-left: 18px; padding-right: 18px; } }
+  </style>
+  <script src="assets/dashboard-config.js"></script>
+  <script src="assets/synchro-cloud.js"></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <svg class="wordmark" viewBox="0 0 93 35" role="img" aria-label="HS2"><path fill="#fff" fill-rule="evenodd" d="M30.117 13.449H6.883V.657A.657.657 0 0 0 6.226 0H.657A.657.657 0 0 0 0 .657v32.686c0 .363.294.657.657.657h5.57a.657.657 0 0 0 .656-.657V20.33h23.234v13.012c0 .363.294.657.657.657h5.569a.657.657 0 0 0 .657-.657V.657A.657.657 0 0 0 36.343 0h-5.57a.657.657 0 0 0-.656.657v12.792zm41.391-9.007a.694.694 0 0 1 .136-.817c.58-.56 1.26-1.089 2.012-1.573.918-.59 1.986-1.085 3.174-1.47C78.025.196 79.406 0 80.935 0c1.72 0 3.295.275 4.678.818 1.39.545 2.589 1.322 3.564 2.31.977.989 1.738 2.192 2.26 3.576.52 1.378.785 2.91.785 4.554 0 1.073-.125 2.08-.371 2.991a12.552 12.552 0 0 1-1.008 2.582 15.86 15.86 0 0 1-1.507 2.328 36.061 36.061 0 0 1-1.854 2.194l-6.184 6.731h11.054c.358 0 .648.3.648.67v5.576c0 .37-.29.67-.648.67H71.648a.66.66 0 0 1-.648-.67v-4.49c0-.319.12-.626.334-.855L82.452 17.07c.838-.876 1.475-1.77 1.897-2.659.412-.87.621-1.81.621-2.794 0-.675-.11-1.298-.324-1.851a4.364 4.364 0 0 0-.907-1.441 4.063 4.063 0 0 0-1.407-.947 4.858 4.858 0 0 0-1.855-.342c-.719 0-1.375.094-1.952.28a6.834 6.834 0 0 0-1.612.758c-.492.318-.942.707-1.374 1.118-.157.15-.303.282-.441.407a.636.636 0 0 1-.998-.185l-2.592-4.972zm-6.463 12.645c-.9-.763-1.971-1.388-3.188-1.856a20.582 20.582 0 0 0-3.886-1.057l-1.72-.307c-.9-.154-1.74-.33-2.496-.524-.74-.189-1.384-.421-1.915-.69-.503-.255-.897-.569-1.17-.934-.256-.342-.38-.753-.38-1.256 0-.552.122-1.025.372-1.446.257-.43.621-.803 1.083-1.107.478-.313 1.059-.558 1.727-.728.68-.172 1.44-.26 2.261-.26 1.616 0 3.14.262 4.53.78a19.568 19.568 0 0 1 3.624 1.79c.11.06.234.1.368.1a.69.69 0 0 0 .615-.386l2.58-4.823a.702.702 0 0 0-.243-.956 26.732 26.732 0 0 0-2.647-1.47A19.24 19.24 0 0 0 58.74.204C57.74.07 56.684 0 55.603 0a16.21 16.21 0 0 0-4.74.688c-1.502.46-2.843 1.147-3.984 2.045a10.033 10.033 0 0 0-2.768 3.415c-.688 1.369-1.037 2.963-1.037 4.74 0 1.547.247 2.796.733 3.93a8.206 8.206 0 0 0 2.04 2.893c.856.773 1.882 1.404 3.05 1.875a18.87 18.87 0 0 0 3.795 1.058l1.934.33a35.35 35.35 0 0 1 2.767.595c.773.203 1.428.446 1.943.722.486.26.852.57 1.088.92.228.339.339.848.339 1.326 0 .565-.127 1.043-.39 1.462a3.65 3.65 0 0 1-1.14 1.124c-.498.322-1.1.566-1.787.729a9.92 9.92 0 0 1-2.278.25 13.52 13.52 0 0 1-2.798-.287 16.538 16.538 0 0 1-2.576-.762 14.298 14.298 0 0 1-3.82-2.2.69.69 0 0 0-1.005.168l-2.872 4.825a.714.714 0 0 0 .105.86.674.674 0 0 0 .12.096 15.41 15.41 0 0 0 2.545 1.714 19.801 19.801 0 0 0 3.237 1.382c1.122.366 2.295.644 3.484.826a23.48 23.48 0 0 0 3.557.276c1.665 0 3.284-.227 4.812-.675 1.538-.45 2.92-1.142 4.105-2.055a10.156 10.156 0 0 0 2.868-3.487c.71-1.401 1.07-3.067 1.07-4.953 0-1.49-.267-2.809-.794-3.917a8.422 8.422 0 0 0-2.161-2.826z"/></svg>
+      <span class="rule" aria-hidden="true"></span>
+      <div><p class="kicker" id="project-kicker">MEP · Cable containment</p><h1>Installation dashboards</h1></div>
+    </div>
+  </header>
+  <main>
+    <section class="status" aria-live="polite">
+      <span class="dot" id="dot"></span>
+      <span class="status-text" id="status-text">Checking the Synchro connection...</span>
+      <button class="btn ghost" id="settings" type="button">Synchro settings</button>
+    </section>
+    <div class="error" id="error" role="alert"></div>
+    <section class="publish" aria-labelledby="publish-title">
+      <div class="publish-copy">
+        <h2 id="publish-title">Leadership copies</h2>
+        <p id="publish-text">Publish both dashboards as files with the data sealed inside, for people without Synchro. Put them on SharePoint and anyone can open them, with no licence or sign-in.</p>
+      </div>
+      <button class="btn" id="publish" type="button">Publish for SharePoint</button>
+    </section>
+    <section class="cards">
+      <a class="card" href="01%20MEP%20Installation%20Progress.html">
+        <span class="num">01</span>
+        <h2>Installation progress</h2>
+        <p>The weighted progress view the team already uses, now reading Synchro statuses live from the cloud, with the line-item table and CSV export.</p>
+        <span class="go">Open progress</span>
+      </a>
+      <a class="card" href="02%20Containment%20Installation%20Insights.html">
+        <span class="num">02</span>
+        <h2>Containment insights</h2>
+        <p>Burn-up against scope and programme, weekly install rate, forecast finish, rework and work-front lists, and where the remaining metres sit.</p>
+        <span class="go">Open insights</span>
+      </a>
+    </section>
+    <p class="note" id="note">Both pages also accept the Excel export from Synchro (Load Excel), so they keep working without a cloud connection.</p>
+  </main>
+  <script>
+    (async () => {
+      if (SynchroCloud.inAuthFrame) return;   // silent sign-in refresh frame: nothing to show
+      const { authError } = await SynchroCloud.init({ onSettingsSaved: () => location.reload() });
+      if (SynchroCloud.mode() === 'cloud') {
+        await SynchroCloud.requireSignIn({ authError });   // goes to Bentley sign-in first if needed
+        SynchroCloud.gate.hide();
+      }
+      document.documentElement.classList.remove('booting');
+      const cfg = SynchroCloud.config();
+      const statusText = document.getElementById('status-text');
+      const dot = document.getElementById('dot');
+      if (cfg.projectLabel) document.getElementById('project-kicker').textContent = `${cfg.projectLabel} · MEP cable containment`;
+      document.getElementById('settings').addEventListener('click', () => SynchroCloud.openSettings());
+      const publishText = document.getElementById('publish-text');
+      const showLastPublish = () => {
+        const last = (SynchroCloud.lastPublish() || {}).last;
+        if (!last) return;
+        const F = SynchroCloud.fmt;
+        const esc = SynchroCloud.escapeHtml;
+        publishText.innerHTML = `Last published <b>${esc(F.dateTime(last.at))}</b>${last.folder ? ` to "${esc(last.folder)}"` : ' (downloaded)'}${last.by ? ` by ${esc(last.by)}` : ''}, data as at ${esc(F.dateTime(last.asAt))}. Publish again whenever leadership needs fresh figures.`;
+      };
+      showLastPublish();
+      document.getElementById('publish').addEventListener('click', () => SynchroCloud.openPublish({ onPublished: showLastPublish }));
+      if (authError) {
+        const box = document.getElementById('error');
+        box.textContent = `Bentley sign-in did not complete: ${authError}`;
+        box.classList.add('show');
+      }
+      if (!SynchroCloud.isHttp) {
+        statusText.innerHTML = 'Opened from a file. Use the team web link for the live Synchro connection, or load an Excel export inside each dashboard.';
+        return;
+      }
+      if (!SynchroCloud.isCloudConfigured()) {
+        statusText.innerHTML = 'Not connected to Synchro yet. Open <b>Synchro settings</b> to sign in and choose the schedule (one-time setup).';
+        return;
+      }
+      const cached = SynchroCloud.cachedDataset();
+      const describe = (d) => `<b>${SynchroCloud.escapeHtml(d.label)}</b>, ${SynchroCloud.fmt.int(d.rows.length)} items, read ${SynchroCloud.fmt.ago(d.fetchedAt)}`;
+      if (cached) statusText.innerHTML = `Live Synchro data: ${describe(cached)}.`;
+      try {
+        await SynchroCloud.getToken();
+        const me = await SynchroCloud.whoAmI().catch(() => ({}));
+        dot.classList.add('on');
+        statusText.innerHTML = `Connected${me.displayName ? ` as <b>${SynchroCloud.escapeHtml(me.displayName)}</b>` : ''}${cached ? `. Latest data: ${describe(cached)}` : '. Open a dashboard to load the schedule'}.`;
+      } catch (e) {
+        statusText.innerHTML = `Synchro is set up${cached ? ` (last data: ${describe(cached)})` : ''}, but you need to sign in. <a href="#" id="signin">Sign in with Bentley</a>.`;
+        document.getElementById('signin').addEventListener('click', (ev) => { ev.preventDefault(); SynchroCloud.signIn(location.href); });
+      }
+    })();
+  </script>
+</body>
+</html>

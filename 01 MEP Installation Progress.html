@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#18211f">
+  <title>MEP Installation Progress</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="assets/dashboard-config.js"></script>
+  <script src="assets/synchro-cloud.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18211f;
+      --ink-soft: #52615d;
+      --paper: #f3f5f1;
+      --white: #fff;
+      --line: #dce2dc;
+      --green: #2f7259;
+      --green-light: #dcebe1;
+      --lime: #d9ef68;
+      --amber: #db9d3e;
+      --red: #b9574f;
+      --mono: "IBM Plex Mono", Consolas, monospace;
+      --sans: "DM Sans", "Segoe UI", sans-serif;
+      --sc-ink: var(--ink); --sc-accent: var(--green); --sc-paper: var(--paper); --sc-line: var(--line);
+      --sc-font: var(--sans); --sc-mono: var(--mono); --sc-danger: var(--red); --sc-ok: var(--green);
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    .topbar { background: var(--ink); color: white; min-height: 66px; display: flex; align-items: center; justify-content: space-between; padding: 0 5.2vw; gap: 20px; }
+    .brand { display: flex; align-items: center; gap: 12px; font-size: 13px; font-weight: 700; letter-spacing: .08em; }
+    .brand-mark { width: 28px; height: 28px; display: grid; place-items: center; color: var(--ink); background: var(--lime); font-family: var(--mono); font-size: 12px; }
+    .top-meta { color: #b9c3be; font: 11px var(--mono); text-transform: uppercase; }
+    .top-right { display: flex; align-items: center; gap: 18px; }
+    .live { display: flex; align-items: center; gap: 8px; }
+    .live .dot { width: 8px; height: 8px; border-radius: 50%; background: #6f7d78; flex: 0 0 auto; }
+    .live.is-live .dot { background: var(--lime); box-shadow: 0 0 0 3px rgba(217, 239, 104, .18); }
+    .live.is-busy .dot { background: var(--lime); animation: pulse 1s ease-in-out infinite; }
+    .live.is-warn .dot { background: var(--amber); }
+    .live.is-error .dot { background: var(--red); }
+    @keyframes pulse { 50% { opacity: .3; } }
+    .top-link { color: #fff; font: 600 11px var(--mono); text-transform: uppercase; text-decoration: none; border-bottom: 1px solid rgba(255,255,255,.35); padding-bottom: 2px; }
+    .top-link:hover { border-color: var(--lime); color: var(--lime); }
+    .loadbar { position: fixed; inset: 0 auto auto 0; height: 3px; width: 0; background: var(--lime); opacity: 0; transition: width 1.2s ease, opacity .3s ease; z-index: 6; }
+    .loadbar.on { width: 82%; opacity: 1; }
+    main { max-width: 1440px; margin: auto; padding: 42px 5.2vw 56px; }
+    .heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 30px; }
+    .eyebrow { color: var(--green); font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; margin: 0 0 9px; }
+    h1 { font-size: clamp(27px, 3vw, 39px); line-height: 1.08; letter-spacing: -.025em; margin: 0; font-weight: 600; }
+    .subheading { color: var(--ink-soft); margin: 9px 0 0; font-size: 14px; }
+    .toolbar { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+    .button { border: 1px solid var(--ink); border-radius: 3px; padding: 10px 14px; background: var(--ink); color: white; font-size: 12px; font-weight: 600; text-decoration: none; transition: background .16s ease, transform .16s ease; }
+    .button:hover { background: var(--green); transform: translateY(-1px); }
+    .button.secondary { background: transparent; color: var(--ink); border-color: var(--line); }
+    .button.secondary:hover { border-color: var(--ink); background: white; }
+    .button.attention { border-color: var(--amber); background: #fff7e8; }
+    .button.accent { border-color: var(--lime); background: var(--lime); color: var(--ink); }
+    .button.accent:hover { background: #cfe55c; color: var(--ink); }
+    .snapshot-note { margin: -12px 0 22px; padding: 11px 14px; background: var(--white); border: 1px solid var(--line); border-left: 3px solid var(--green); color: var(--ink-soft); font-size: 12.5px; line-height: 1.5; }
+    .snapshot-note b { color: var(--ink); font-weight: 600; }
+    .snapshot-note.is-stale { border-left-color: var(--amber); background: #fff7e8; }
+    .snapshot-note strong { color: #8a5a00; font-weight: 600; }
+    .snapshot-note a { color: var(--green); font-weight: 600; }
+    .button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+    .sheet-control { min-height: 38px; border: 1px solid var(--line); border-radius: 3px; background: white; color: var(--ink); padding: 0 30px 0 10px; font-size: 12px; }
+    .overview { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
+    .progress-panel, .stat, .status-panel, .table-panel { background: var(--white); border: 1px solid var(--line); }
+    .progress-panel { min-height: 255px; padding: 25px 28px; display: flex; flex-direction: column; justify-content: space-between; }
+    .panel-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink-soft); font: 500 11px var(--mono); text-transform: uppercase; }
+    .tag { border: 1px solid var(--line); padding: 5px 8px; color: var(--green); background: #f7faf6; font-size: 10px; }
+    .progress-content { display: flex; align-items: center; gap: 28px; }
+    .ring { --progress: 0%; width: 150px; height: 150px; flex: 0 0 auto; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(var(--green) var(--progress), #e8ede8 0); position: relative; }
+    .ring::before { content: ""; position: absolute; inset: 9px; background: white; border-radius: inherit; }
+    .ring-copy { position: relative; text-align: center; }
+    .ring-number { font: 600 30px var(--mono); letter-spacing: -.06em; }
+    .ring-caption { color: var(--ink-soft); display: block; font-size: 10px; margin-top: 2px; text-transform: uppercase; }
+    .progress-copy { min-width: 0; }
+    .progress-copy strong { display: block; font-size: clamp(19px, 2.4vw, 28px); font-weight: 600; line-height: 1.2; }
+    .progress-copy p { margin: 8px 0 0; color: var(--ink-soft); font-size: 13px; }
+    .progress-track { height: 8px; background: #e8ede8; overflow: hidden; margin-top: 22px; }
+    .progress-fill { width: 0; height: 100%; background: var(--green); transition: width .45s ease; }
+    .stat-stack { display: grid; grid-template-rows: 1fr 1fr; gap: 16px; }
+    .stat { min-height: 118px; padding: 20px 22px; display: flex; flex-direction: column; justify-content: space-between; }
+    .stat-title { color: var(--ink-soft); font: 500 10px var(--mono); text-transform: uppercase; }
+    .stat-value { font: 500 25px var(--mono); letter-spacing: -.04em; }
+    .stat-foot { color: #75827d; font-size: 11px; }
+    .lower-grid { margin-top: 16px; display: grid; grid-template-columns: minmax(240px, .75fr) minmax(0, 1.8fr); gap: 16px; align-items: stretch; }
+    .overview > *, .lower-grid > * { min-width: 0; }
+    .status-panel, .table-panel { padding: 21px 23px; }
+    .section-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; }
+    h2 { margin: 0; font-size: 14px; font-weight: 600; }
+    .section-note { color: #78847f; font: 10px var(--mono); }
+    .status-list { display: grid; gap: 2px; }
+    .status-item { min-height: 39px; display: grid; grid-template-columns: 19px minmax(0, 1fr) auto; align-items: center; gap: 8px; border-bottom: 1px solid #edf0ec; font-size: 12px; }
+    .status-item:last-child { border-bottom: 0; }
+    .status-item input { accent-color: var(--green); margin: 0; width: 14px; height: 14px; }
+    .status-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .status-length { color: var(--ink-soft); font: 11px var(--mono); white-space: nowrap; }
+    .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; background: #c9d1cc; }
+    .table-tools { display: flex; gap: 9px; align-items: center; }
+    .search { width: min(230px, 38vw); min-height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 2px; outline: none; font-size: 12px; }
+    .search:focus, .sheet-control:focus { border-color: var(--green); box-shadow: 0 0 0 2px #2f72591c; }
+    .table-wrap { overflow: auto; max-height: 420px; border-top: 1px solid var(--line); }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    thead { position: sticky; top: 0; background: #f7f8f6; z-index: 1; }
+    th { color: #66736e; font: 500 10px var(--mono); text-align: left; text-transform: uppercase; padding: 11px 9px; white-space: nowrap; }
+    td { padding: 10px 9px; border-top: 1px solid #edf0ec; }
+    td:nth-child(1), td:nth-child(4), td:nth-child(5) { font-family: var(--mono); }
+    td:nth-child(4), td:nth-child(5), th:nth-child(4), th:nth-child(5) { text-align: right; }
+    .status-pill { display: inline-block; max-width: 100%; border-radius: 2px; background: #eef1ed; padding: 4px 7px; color: #59645f; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .status-pill.is-done { color: #245c45; background: var(--green-light); }
+    .status-pill .swatch { width: 6px; height: 6px; margin-right: 5px; }
+    .empty { color: #73807a; padding: 26px 8px; text-align: center; font-size: 12px; }
+    .footerline { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; color: #77827d; font: 10px var(--mono); margin-top: 13px; }
+    .toast { position: fixed; right: 22px; bottom: 22px; background: var(--ink); color: white; padding: 12px 16px; max-width: min(380px, calc(100vw - 32px)); font-size: 12px; line-height: 1.45; opacity: 0; transform: translateY(8px); pointer-events: none; transition: .2s ease; z-index: 5; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .upload-hint { display: none; color: var(--ink-soft); font-size: 12px; }
+    body.no-data .upload-hint { display: block; }
+    body.no-data .overview, body.no-data .lower-grid { opacity: .55; }
+    @media (max-width: 800px) {
+      main { padding: 30px 22px 40px; }
+      .topbar { padding: 0 22px; }
+      .heading { flex-direction: column; align-items: flex-start; }
+      .toolbar { justify-content: flex-start; }
+      .overview { grid-template-columns: minmax(0, 1fr) 230px; }
+      .progress-panel { padding: 20px; }
+      .ring { width: 125px; height: 125px; }
+      .lower-grid { grid-template-columns: 1fr; }
+      .status-list { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
+    }
+    @media (max-width: 570px) {
+      .top-meta { display: none; }
+      main { padding: 27px 15px 34px; }
+      .topbar { padding: 0 15px; min-height: 58px; }
+      .heading { margin-bottom: 22px; }
+      .toolbar { width: 100%; }
+      .toolbar .button { flex: 1; text-align: center; }
+      .overview { grid-template-columns: 1fr; }
+      .progress-panel { min-height: 228px; padding: 18px; }
+      .progress-content { gap: 17px; }
+      .ring { width: 112px; height: 112px; }
+      .ring-number { font-size: 25px; }
+      .stat-stack { grid-template-columns: 1fr 1fr; grid-template-rows: auto; gap: 10px; }
+      .stat { min-height: 104px; padding: 15px; }
+      .stat-value { font-size: 20px; }
+      .status-panel, .table-panel { padding: 17px 14px; }
+      .status-list { grid-template-columns: 1fr; }
+      .section-heading { align-items: flex-start; flex-direction: column; }
+      .table-tools { width: 100%; }
+      .search { width: 100%; }
+      .footerline { flex-direction: column; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation: none !important; } }
+  </style>
+</head>
+<body class="no-data">
+  <div class="loadbar" id="loadbar" aria-hidden="true"></div>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">MEP</span><span>FIELD / PROGRESS</span></div>
+    <div class="top-right">
+      <div class="top-meta live" id="live-pill" role="status" aria-live="polite"><span class="dot"></span><span id="live-text">Installation tracking</span></div>
+      <a class="top-link" href="02%20Containment%20Installation%20Insights.html">Insights</a>
+    </div>
+  </header>
+  <main>
+    <section class="heading">
+      <div>
+        <p class="eyebrow">Project controls / 01</p>
+        <h1>MEP Installation Progress</h1>
+        <p class="subheading" id="source-label">Cable tray installation progress</p>
+      </div>
+      <div class="toolbar">
+        <select id="sheet-select" class="sheet-control" aria-label="Workbook sheet" hidden></select>
+        <input id="workbook-file" type="file" accept=".xlsx,.xls,.xlsm" hidden>
+        <button id="refresh-button" class="button secondary" type="button" title="Read the latest statuses from Synchro. Shift+click re-reads everything." hidden>Refresh</button>
+        <button id="settings-button" class="button secondary" type="button">Synchro settings</button>
+        <button id="load-workbook" class="button secondary" type="button">Load Excel</button>
+        <button id="publish-button" class="button accent" type="button" hidden>Publish for SharePoint</button>
+      </div>
+    </section>
+    <p class="snapshot-note" id="snapshot-note" hidden></p>
+    <p class="upload-hint" id="upload-hint">No data is loaded yet. Open Synchro settings to connect to the live Synchro schedule, or select Load Excel to use an export.</p>
+    <section class="overview" aria-label="Installation summary">
+      <article class="progress-panel">
+        <div class="panel-label"><span>Weighted scope complete</span><span class="tag" id="completion-tag">Awaiting data</span></div>
+        <div class="progress-content">
+          <div class="ring" id="progress-ring" aria-label="0 percent complete"><div class="ring-copy"><span id="progress-number" class="ring-number">0%</span><span class="ring-caption">complete</span></div></div>
+          <div class="progress-copy"><strong id="installed-length">0</strong><p id="progress-detail">Connect to Synchro or load a workbook to begin.</p></div>
+        </div>
+        <div class="progress-track" role="progressbar" aria-label="Scope complete" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="progress-fill" id="progress-fill"></div></div>
+      </article>
+      <div class="stat-stack">
+        <article class="stat"><span class="stat-title">Total scope points</span><strong class="stat-value" id="total-length">0</strong><span class="stat-foot" id="total-detail">Length plus one point per fitting</span></article>
+        <article class="stat"><span class="stat-title">Remaining points</span><strong class="stat-value" id="remaining-length">0</strong><span class="stat-foot" id="remaining-detail">Not marked complete</span></article>
+      </div>
+    </section>
+    <section class="lower-grid">
+      <article class="status-panel">
+        <div class="section-heading"><h2>Completion rule</h2><span class="section-note" id="rule-note">SELECT INSTALLED STATUSES</span></div>
+        <div id="status-list" class="status-list"><div class="empty">Status labels will appear once data is loaded.</div></div>
+      </article>
+      <article class="table-panel">
+        <div class="section-heading"><h2>Line items</h2><div class="table-tools"><input id="search-input" class="search" type="search" placeholder="Search element, object or status" aria-label="Search line items"><button id="export-button" class="button secondary" type="button" disabled>Export CSV</button></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Row</th><th>Element / description</th><th>Object</th><th>Length (metres) / fitting</th><th>Quantity</th><th>Installation status</th></tr></thead><tbody id="rows-body"><tr><td class="empty" colspan="6">Connect to Synchro or load a workbook to view line items.</td></tr></tbody></table></div>
+        <div class="footerline"><span id="row-count">No rows loaded</span><span id="column-note">Source: element A, quantity C, object D, length B, status E</span><span id="refresh-note"></span></div>
+      </article>
+    </section>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script>
+    const SC = window.SynchroCloud;
+    const sheetSelect = document.querySelector('#sheet-select');
+    const workbookFile = document.querySelector('#workbook-file');
+    const loadWorkbookButton = document.querySelector('#load-workbook');
+    const refreshButton = document.querySelector('#refresh-button');
+    const settingsButton = document.querySelector('#settings-button');
+    const statusList = document.querySelector('#status-list');
+    const rowsBody = document.querySelector('#rows-body');
+    const searchInput = document.querySelector('#search-input');
+    const exportButton = document.querySelector('#export-button');
+    const publishButton = document.querySelector('#publish-button');
+    let completeStatuses = new Set();
+    let dataset = null;           // what is on screen: Synchro cloud or an Excel sheet
+    let workbook = null;          // cached Excel workbook (sheet rows) when in Excel mode
+    let activeSheetRows = [];
+    let live = null;              // auto-refresh controller
+    let livePaused = false;
+    let needsSignIn = false;
+    let toastTimer;
+
+    function showToast(message, ms = 4200) {
+      const toast = document.querySelector('#toast');
+      toast.textContent = message;
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), ms);
+    }
+    function setLive(state, text) {
+      const pill = document.querySelector('#live-pill');
+      pill.className = `top-meta live${state ? ` is-${state}` : ''}`;
+      document.querySelector('#live-text').textContent = text;
+    }
+    function loading(on) { document.querySelector('#loadbar').classList.toggle('on', on); }
+
+    function formatLength(value) {
+      return new Intl.NumberFormat('en-GB', { maximumFractionDigits: 2 }).format(value);
+    }
+    function formatScope(length, fittings, unit) {
+      return `${formatLength(length)} ${unit} + ${fittings.toLocaleString('en-GB')} fitting${fittings === 1 ? '' : 's'}`;
+    }
+    function getUnit() { return dataset ? dataset.unit : 'metres'; }
+    function statusLabels() { return SC.sortStatuses(activeSheetRows.map(row => row.status)); }
+    function statusColour(label) {
+      const s = dataset && dataset.statuses.find(x => x.name === label);
+      return s && s.color ? s.color : null;
+    }
+    function swatch(label) {
+      const dot = document.createElement('span');
+      dot.className = 'swatch';
+      const colour = statusColour(label);
+      if (colour) dot.style.background = colour;
+      return dot;
+    }
+
+    function renderStatuses() {
+      const totals = new Map();
+      for (const row of activeSheetRows) {
+        const total = totals.get(row.status) || { length: 0, fittings: 0 };
+        total.length += row.length;
+        total.fittings += row.fittingCount;
+        totals.set(row.status, total);
+      }
+      const labels = statusLabels();
+      if (!labels.length) {
+        statusList.innerHTML = '<div class="empty">No valid objects found.</div>';
+        return;
+      }
+      statusList.innerHTML = '';
+      for (const label of labels) {
+        const item = document.createElement('label');
+        item.className = 'status-item';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = completeStatuses.has(label);
+        checkbox.setAttribute('aria-label', `Count ${label} as installed`);
+        checkbox.disabled = SC.mode() === 'snapshot';
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) completeStatuses.add(label);
+          else completeStatuses.delete(label);
+          SC.completion.set(completeStatuses, labels);
+          renderDashboard();
+        });
+        const name = document.createElement('span');
+        name.className = 'status-name';
+        name.append(swatch(label), document.createTextNode(label));
+        const length = document.createElement('span');
+        length.className = 'status-length';
+        const total = totals.get(label);
+        length.textContent = `${formatLength(total.length)} ${getUnit()} + ${total.fittings} fit.`;
+        item.append(checkbox, name, length);
+        statusList.append(item);
+      }
+    }
+
+    function renderRows() {
+      const query = searchInput.value.trim().toLowerCase();
+      const filtered = activeSheetRows.filter(row => `${row.rowNumber} ${row.element} ${row.item} ${row.quantity} ${row.status} ${row.length} ${row.isFitting ? 'fitting' : ''}`.toLowerCase().includes(query));
+      rowsBody.innerHTML = '';
+      if (!filtered.length) {
+        rowsBody.innerHTML = '<tr><td class="empty" colspan="6">No matching line items.</td></tr>';
+      } else {
+        const fragment = document.createDocumentFragment();
+        for (const row of filtered) {
+          const tr = document.createElement('tr');
+          const rowCell = document.createElement('td');
+          rowCell.textContent = row.rowNumber;
+          const elementCell = document.createElement('td');
+          elementCell.textContent = row.element || '-';
+          const itemCell = document.createElement('td');
+          itemCell.textContent = row.item || '-';
+          const lengthCell = document.createElement('td');
+          lengthCell.textContent = row.isFitting ? '1 fitting' : formatLength(row.length);
+          const quantityCell = document.createElement('td');
+          quantityCell.textContent = row.quantity || '-';
+          const statusCell = document.createElement('td');
+          const pill = document.createElement('span');
+          pill.className = `status-pill${completeStatuses.has(row.status) ? ' is-done' : ''}`;
+          pill.append(swatch(row.status), document.createTextNode(row.status));
+          if (row.statusDate) pill.title = `Recorded ${SC.fmt.dateTime(row.statusDate)}${row.note ? `: ${row.note}` : ''}`;
+          statusCell.append(pill);
+          tr.append(rowCell, elementCell, itemCell, lengthCell, quantityCell, statusCell);
+          fragment.append(tr);
+        }
+        rowsBody.append(fragment);
+      }
+      document.querySelector('#row-count').textContent = `${filtered.length.toLocaleString('en-GB')} of ${activeSheetRows.length.toLocaleString('en-GB')} rows`;
+      exportButton.disabled = !activeSheetRows.length;
+    }
+
+    function renderDashboard() {
+      const unit = getUnit();
+      const totalLength = activeSheetRows.reduce((sum, row) => sum + row.length, 0);
+      const totalFittings = activeSheetRows.reduce((sum, row) => sum + row.fittingCount, 0);
+      const installedLength = activeSheetRows.reduce((sum, row) => sum + (completeStatuses.has(row.status) ? row.length : 0), 0);
+      const installedFittings = activeSheetRows.reduce((sum, row) => sum + (completeStatuses.has(row.status) ? row.fittingCount : 0), 0);
+      const total = totalLength + totalFittings;
+      const installed = installedLength + installedFittings;
+      const remainingLength = totalLength - installedLength;
+      const remainingFittings = totalFittings - installedFittings;
+      const percentage = total > 0 ? installed / total * 100 : 0;
+      const rounded = Math.round(percentage * 10) / 10;
+      document.querySelector('#installed-length').textContent = `${formatLength(installed)} points`;
+      document.querySelector('#total-length').textContent = `${formatLength(total)} points`;
+      document.querySelector('#remaining-length').textContent = `${formatLength(total - installed)} points`;
+      document.querySelector('#progress-number').textContent = `${rounded}%`;
+      document.querySelector('#progress-detail').textContent = `${formatScope(installedLength, installedFittings, unit)} complete`;
+      document.querySelector('#total-detail').textContent = formatScope(totalLength, totalFittings, unit);
+      document.querySelector('#remaining-detail').textContent = formatScope(remainingLength, remainingFittings, unit);
+      document.querySelector('#completion-tag').textContent = completeStatuses.size ? `${completeStatuses.size} status${completeStatuses.size === 1 ? '' : 'es'} counted complete` : 'No statuses counted complete';
+      document.querySelector('#progress-ring').style.setProperty('--progress', `${percentage}%`);
+      document.querySelector('#progress-ring').setAttribute('aria-label', `${rounded}% complete`);
+      document.querySelector('#progress-fill').style.width = `${percentage}%`;
+      document.querySelector('.progress-track').setAttribute('aria-valuenow', String(rounded));
+      renderRows();
+    }
+
+    function applyDataset(next) {
+      dataset = next;
+      activeSheetRows = next.rows;
+      completeStatuses = SC.completion.get(statusLabels());
+      renderStatuses();
+      renderDashboard();
+      document.body.classList.remove('no-data');
+      const count = activeSheetRows.length.toLocaleString('en-GB');
+      if (next.source === 'cloud') {
+        document.querySelector('#source-label').textContent = `Synchro cloud / ${next.label} / ${count} objects / metres + fittings`;
+        document.querySelector('#column-note').textContent = `Source: Synchro ${next.category ? `"${next.category}" ` : ''}statuses, length from ${next.mapping.length}, object from ${next.mapping.object}`;
+      } else {
+        document.querySelector('#source-label').textContent = `${next.filename} / ${next.sheetName} / ${count} objects / ${getUnit()} + fittings`;
+        document.querySelector('#column-note').textContent = 'Source: element A, quantity C, object D, length B, status E';
+      }
+      if (!activeSheetRows.length) showToast(next.source === 'cloud' ? 'Synchro returned no items for this scope. Check the scope in Synchro settings.' : 'No valid objects found in columns B and D for this sheet.');
+      SC.snapshots.record(next);
+      SC.gate.hide();
+    }
+
+    /* ---------- Excel export (kept as the offline fallback) ---------- */
+    function showWorkbook(cache) {
+      workbook = cache;
+      sheetSelect.innerHTML = '';
+      for (const name of cache.sheetNames) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        sheetSelect.append(option);
+      }
+      sheetSelect.hidden = cache.sheetNames.length < 2;
+      applyDataset(SC.datasetFromSheet(cache.sheets[cache.sheetNames[0]], cache.filename, cache.sheetNames[0], cache.sheetNames, cache.modifiedAt));
+    }
+    function useWorkbook(xlsxWorkbook, filename, lastModified) {
+      showWorkbook(SC.workbookToCache(xlsxWorkbook, filename, lastModified));
+      if (SC.mode() === 'cloud') {
+        livePaused = true;
+        setLive('warn', 'Excel file shown, live paused');
+        document.querySelector('#refresh-note').textContent = 'Refresh returns to live Synchro data';
+      } else {
+        setLive('', 'Excel export');
+      }
+    }
+    async function tryWorkbookBesideDashboard() {
+      if (!SC.isHttp) return false;
+      try {
+        const filename = 'Revit file Cable tray.xlsx';
+        const response = await fetch(`./${encodeURIComponent(filename)}`, { cache: 'no-store' });
+        if (!response.ok) return false;
+        useWorkbook(XLSX.read(await response.arrayBuffer(), { type: 'array' }), filename);
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    /* ---------- Synchro cloud ---------- */
+    function updateCountdown(ms) {
+      const note = document.querySelector('#refresh-note');
+      if (livePaused || SC.mode() !== 'cloud') return;
+      note.textContent = needsSignIn ? 'Live updates paused until you sign in' : `Next Synchro refresh in ${Math.max(1, Math.ceil(ms / 60000))} min`;
+    }
+    async function refreshFromCloud({ force = false } = {}) {
+      if (SC.mode() !== 'cloud') return;
+      livePaused = false;
+      sheetSelect.hidden = true;
+      setLive('busy', 'Reading Synchro');
+      loading(true);
+      refreshButton.disabled = true;
+      try {
+        const next = await SC.loadDataset({ history: false, force, onProgress: (text) => { setLive('busy', text); SC.gate.progress(`${text}...`); } });
+        needsSignIn = false;
+        refreshButton.textContent = 'Refresh';
+        refreshButton.classList.remove('attention');
+        applyDataset(next);
+        setLive('live', `Live, read ${SC.fmt.time(next.fetchedAt)}${next.lastSync ? `, Synchro synced ${SC.fmt.ago(next.lastSync)}` : ''}`);
+        if (next.notes && next.notes.length) showToast(next.notes[0], 6000);
+      } catch (error) {
+        if (!dataset) SC.gate.failed(error, () => refreshFromCloud({ force: true }), { onExcel: () => workbookFile.click() });
+        if (error.authRequired) {
+          needsSignIn = true;
+          refreshButton.textContent = 'Sign in to Synchro';
+          refreshButton.classList.add('attention');
+          setLive('warn', dataset ? `Sign-in needed, showing data from ${SC.fmt.ago(dataset.fetchedAt)}` : 'Sign-in needed');
+        } else {
+          setLive('error', dataset ? `Refresh failed, showing data from ${SC.fmt.ago(dataset.fetchedAt)}` : 'Could not read Synchro');
+          if (dataset) showToast(error.message, 7000);
+        }
+      } finally {
+        loading(false);
+        refreshButton.disabled = false;
+        if (live) live.reset();
+      }
+    }
+
+    sheetSelect.addEventListener('change', () => {
+      if (workbook) applyDataset(SC.datasetFromSheet(workbook.sheets[sheetSelect.value], workbook.filename, sheetSelect.value, workbook.sheetNames, workbook.modifiedAt));
+    });
+    loadWorkbookButton.addEventListener('click', () => workbookFile.click());
+    workbookFile.addEventListener('change', async () => {
+      const file = workbookFile.files[0];
+      if (!file) return;
+      try {
+        useWorkbook(XLSX.read(await file.arrayBuffer(), { type: 'array' }), file.name, file.lastModified);
+      } catch (error) {
+        showToast(`Could not read workbook: ${error.message}`);
+      } finally {
+        workbookFile.value = '';
+      }
+    });
+    refreshButton.addEventListener('click', (event) => {
+      if (needsSignIn) SC.signIn(location.href).catch(error => showToast(error.message));
+      else refreshFromCloud({ force: event.shiftKey });
+    });
+    settingsButton.addEventListener('click', () => SC.openSettings());
+    publishButton.addEventListener('click', () => SC.openPublish());
+    searchInput.addEventListener('input', renderRows);
+    exportButton.addEventListener('click', () => {
+      if (!activeSheetRows.length) return;
+      const lines = [['Row', 'Element / description', 'Object', 'Length (metres)', 'Fitting count', 'Quantity', 'Installation status', 'Counted complete', 'Status recorded'],
+        ...activeSheetRows.map(row => [row.rowNumber, row.element, row.item, row.isFitting ? '' : row.length, row.fittingCount, row.quantity, row.status, completeStatuses.has(row.status) ? 'Yes' : 'No', row.statusDate ? SC.fmt.dateTime(row.statusDate) : ''])];
+      const csv = lines.map(line => line.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }));
+      link.download = 'cable-tray-progress.csv';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 500);
+    });
+
+    // Published copy: the data is inside this file, so show it as published and nothing else.
+    function bootSnapshot(snap) {
+      document.body.classList.add('is-snapshot');
+      [refreshButton, settingsButton, loadWorkbookButton, publishButton, sheetSelect].forEach((el) => { el.hidden = true; });
+      if (!snap.dataset) {
+        setLive('error', 'This copy has no readable data');
+        showToast(`This copy could not be read (${snap.error}). Ask for a fresh copy.`, 9000);
+        return;
+      }
+      applyDataset(snap.dataset);
+      const info = SC.snapshot.describe(snap);
+      setLive(info.stale ? 'warn' : 'live', `Published copy, data as at ${SC.fmt.dateTime(info.asAt)}`);
+      const note = document.querySelector('#snapshot-note');
+      note.innerHTML = info.html + (info.staleHtml ? ` <strong>${info.staleHtml}</strong>` : '');
+      note.classList.toggle('is-stale', info.stale);
+      note.hidden = false;
+      document.querySelector('#rule-note').textContent = 'SET BY PUBLISHER';
+      document.querySelector('#refresh-note').textContent = 'Published copy: does not update by itself';
+    }
+
+    (async function boot() {
+      const snap = SC.snapshot.read();
+      if (snap) { bootSnapshot(snap); return; }
+      publishButton.hidden = false;
+      const { authError } = await SC.init({
+        onSettingsSaved: () => { refreshButton.hidden = SC.mode() !== 'cloud'; if (SC.mode() === 'cloud') { if (!dataset) SC.gate.loading(); startLive(); refreshFromCloud({ force: true }); } },
+        publish: {
+          dataset: () => dataset,
+          onPublished: (result) => {
+            if (result.dataset && result.dataset.source === 'cloud' && !livePaused) {
+              applyDataset(result.dataset);
+              setLive('live', `Live, read ${SC.fmt.time(result.dataset.fetchedAt)}${result.dataset.lastSync ? `, Synchro synced ${SC.fmt.ago(result.dataset.lastSync)}` : ''}`);
+            }
+          }
+        }
+      });
+      if (authError && SC.mode() !== 'cloud') showToast(`Bentley sign-in did not complete: ${authError}`, 8000);
+      if (SC.mode() === 'cloud') {
+        refreshButton.hidden = false;
+        await SC.requireSignIn({ authError });   // goes to Bentley sign-in first if needed
+        const cached = SC.cachedDataset();
+        if (cached) {
+          applyDataset(cached);
+          setLive('live', `Showing data read ${SC.fmt.ago(cached.fetchedAt)}`);
+        } else {
+          SC.gate.loading();
+        }
+        startLive();
+        await refreshFromCloud();
+        return;
+      }
+      const cache = SC.cachedWorkbook();
+      if (cache) {
+        showWorkbook(cache);
+        setLive('', 'Excel export (saved copy)');
+      } else if (!(await tryWorkbookBesideDashboard())) {
+        setLive('', SC.isHttp ? 'Not connected to Synchro' : 'Offline, Excel mode');
+        const onExcel = () => workbookFile.click();
+        if (SC.isHttp) SC.gate.setup({ onExcel }); else SC.gate.welcome({ onExcel });
+      }
+    })();
+    function startLive() {
+      if (live) return;
+      live = SC.autoRefresh(() => (livePaused ? null : refreshFromCloud()), updateCountdown);
+    }
+  </script>
+</body>
+</html>
